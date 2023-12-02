@@ -201,3 +201,113 @@ log_product_ci
 95% Confidence Interval of $\hat{r}^2$ :(0.8882079 to 0.9402552)
 
 95% Confidence Interval of $log(\beta_{1} * \beta_{2})$: (-9.063214 to -4.619267)
+
+# Q3
+## Read data
+```{r}
+data <- read.csv("birthweight.csv")
+```
+
+## Data Cleaning
+```{r}
+data <- data %>%
+  mutate(
+    babysex = factor(babysex, levels = c(1, 2), labels = c("Male", "Female")),
+    frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present")),
+    mrace = factor(mrace, levels = c(1, 2, 3, 4, 8), labels = c("White", "Black", "Asian", "Puerto Rican", "Other"))
+  )
+
+# Check for missing values
+summary(data)
+```
+
+There is no missing data. The 20 variables include: babysex, bhead, blength, bwt, delwt, fincome, frace, gaweeks, malform, menarche, mheight, momage, mrace, parity, pnumlbw, pnumsga, ppbmi, ppwt, smoken, wtgain.
+
+## Regression Model Proposal
+```{r}
+model_birthweight <- lm(bwt ~ mrace + frace + momage + gaweeks, data = data)
+
+summary(model_birthweight) %>% 
+  tidy() %>%
+  select(term, estimate, p.value)
+summary(model_birthweight) %>% 
+  glance()
+```
+Model Fit: The model accounts for about 22.17% of the variance in birth weight. This suggests that while the included factors do have some relationship with birth weight, there are still many other unaccounted factors.
+
+Significant Predictors: The gestational age is a highly significant predictor, indicating that as gestational age increases, the birth weight also increases significantly (about 59.80 grams per week). Additionally, being born to Black mothers is associated with a significant decrease in birth weight compared to White mothers.
+
+Non-significant Predictors: The mother's age and the father's race, along with other races of the mother, did not show a statistically significant impact on birth weight in this model.
+
+Model Adequacy: The F-statistic is significant, which indicates that the model is statistically significant overall. However, the relatively low R-squared value implies that other factors not included in the model might influence birth weight.
+
+## Residuals Plot
+```{r}
+data_with_preds <- data %>%
+  add_predictions(model_birthweight) %>%
+  add_residuals(model_birthweight)
+
+# Plot the residuals against fitted values
+ggplot(data_with_preds, aes(x = pred, y = resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Residuals vs. Fitted Plot", x = "Fitted values", y = "Residuals")
+```
+
+The "Residuals vs. Fit Plot" for the birth weight model shows that the residuals are mostly randomly dispersed around the zero point of the horizontal line, which is consistent with the assumptions of homoscedasticity and linearity. There was no clear pattern indicating the presence of nonlinearity or heteroscedasticity.
+
+## Model Comparison
+```{r}
+# Define the models for comparison
+set.seed(77)
+
+cv_dataset <-
+  data %>% 
+  crossv_mc(n = 100,test = 0.2)
+  
+
+cv_df <- 
+  cv_dataset %>%
+   mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+cv_df <-
+  cv_df %>%
+    mutate(
+    my_model  = map(train, ~lm(bwt ~ mrace + frace + momage + gaweeks, data = .x)),
+    model_frace_gaweeks = map(train, ~lm(bwt ~ frace + gaweeks, data = .x)),
+    model_interactions  = map(train, ~lm(bwt ~ (mrace + momage + gaweeks)^3, data = .x))
+    ) %>%
+   mutate(
+    rmse_my_model = map2_dbl(my_model, test, ~rmse(model = .x, data = .y)),
+    rmse_frace_gaweeks = map2_dbl(model_frace_gaweeks, test, ~rmse(model = .x, data = .y)),
+    rmse_interactions = map2_dbl(model_interactions, test, ~rmse(model = .x, data = .y))
+   )
+```
+
+## Reporting
+```{r}
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_boxplot() +
+  labs(title = 
+  "Prediction Error Distributions across Models", 
+       x = "Models", y = "Root Mean Square Error")  +
+  scale_x_discrete(
+    labels = c("My Model", "Father’s race + Gestational age in weeks ", "Interactions Model")) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+
+
+```
+
+What we are comparing here is the cross-validation prediction error of the models. Overall, my model seems to have the lowest prediction error (rmse) and therefore is probably the best model .
